@@ -2,7 +2,7 @@
 /*
 Plugin Name: Gravity Forms Partial Entries CleanTalk Spam Check
 Description: Trigger CleanTalk spam checks on partial Gravity Forms entries, focusing on email fields, and move spam entries to the Spam status with detailed auditing.
-Version: 1.5
+Version: 1.6
 Author: Torn Digital
 Author URI: https://torndigital.com
 Plugin URI: https://torndigital.com
@@ -11,6 +11,12 @@ License: GPL2
 
 // Hook into partial entries save
 add_filter('gform_partialentries_post_save', function($entry, $form) {
+    // Check if the entry has a valid ID
+    if (empty($entry['id'])) {
+        error_log("Partial Entry Error: Entry ID is missing or invalid.");
+        return $entry;
+    }
+
     // Loop through all fields in the form
     foreach ($form['fields'] as $field) {
         // Check if the field is of type 'email' or has an admin label "email"
@@ -22,25 +28,24 @@ add_filter('gform_partialentries_post_save', function($entry, $form) {
             if ($email) {
                 $cleantalk_response = gf_cleantalk_check_email($email);
 
-                // Log the CleanTalk response (successful or not)
-                gf_add_entry_note($entry['id'], 'CleanTalk', sprintf(
+                // Attempt to log the CleanTalk response as a note
+                $note_result = gf_add_partial_entry_note($entry['id'], sprintf(
                     "CleanTalk API Query for email %s: %s",
                     $email,
                     json_encode($cleantalk_response, JSON_PRETTY_PRINT)
                 ));
 
+                if (is_wp_error($note_result)) {
+                    error_log("Error adding note to partial entry {$entry['id']}: " . $note_result->get_error_message());
+                }
+
                 // If the email is marked as spam, move the entry to spam
                 if ($cleantalk_response['is_spam']) {
                     $update_status = GFAPI::update_entry_property($entry['id'], 'status', 'spam');
                     if (is_wp_error($update_status)) {
-                        gf_add_entry_note(
-                            $entry['id'],
-                            'CleanTalk',
-                            sprintf("Error moving entry to spam: %s", $update_status->get_error_message())
-                        );
-                        error_log("Error moving entry to spam for email: $email. " . $update_status->get_error_message());
+                        error_log("Error moving partial entry {$entry['id']} to spam: " . $update_status->get_error_message());
                     } else {
-                        error_log("Spam detected and entry marked as spam for email: $email");
+                        error_log("Spam detected and partial entry {$entry['id']} marked as spam for email: $email");
                     }
                 }
             }
@@ -105,17 +110,19 @@ function gf_cleantalk_check_email($email) {
     ]; // Return spam status, API response, and the payload
 }
 
-// Function to add a note to an entry with error handling
-function gf_add_entry_note($entry_id, $user, $note_content) {
-    $add_note = GFAPI::add_note(
-        $entry_id,
-        0, // User ID 0 indicates a system-generated note
-        $user,
-        $note_content
-    );
-
-    if (is_wp_error($add_note)) {
-        error_log("Error adding note to entry $entry_id: " . $add_note->get_error_message());
+// Function to add a note to a partial entry
+function gf_add_partial_entry_note($entry_id, $note_content) {
+    if (method_exists('GFAPI', 'add_note')) {
+        return GFAPI::add_note(
+            $entry_id,
+            0, // User ID 0 indicates a system-generated note
+            'CleanTalk',
+            $note_content
+        );
+    } else {
+        // Fallback: Log to the error log
+        error_log("Failed to add note to partial entry $entry_id. GFAPI::add_note not available.");
+        return new WP_Error('add_note_not_available', 'GFAPI::add_note is not supported for partial entries.');
     }
 }
 
