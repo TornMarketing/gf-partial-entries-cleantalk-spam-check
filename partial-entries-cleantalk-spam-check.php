@@ -5,7 +5,7 @@ Description: Trigger CleanTalk spam checks on partial Gravity Forms entries, foc
 Version: 1.3
 Author: Torn Digital
 Author URI: https://torndigital.com
-Plugin URI: https://torndigital.com
+Plugin URI: https://github.com/TornMarketing/gf-partial-entries-cleantalk-spam-check/
 License: GPL2
 */
 
